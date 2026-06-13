@@ -42,8 +42,7 @@ header{padding:18px 20px 14px;border-bottom:1px solid var(--line);display:flex;j
 #dots{display:flex;gap:7px;justify-content:center;padding-bottom:12px;flex-wrap:wrap;max-width:320px;margin:0 auto;}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--line);}
 .dot.done{background:var(--gold);} .dot.cur{background:var(--paper);}
-footer{border-top:1px solid var(--line);padding:14px 16px calc(20px + env(safe-area-inset-bottom));display:flex;gap:9px;justify-content:center;align-items:center;}
-.pill.nav{border:1px solid var(--line);color:var(--gold);font-size:22px;line-height:1;padding:0;width:46px;height:46px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+footer{border-top:1px solid var(--line);padding:14px 20px calc(20px + env(safe-area-inset-bottom));display:flex;gap:12px;justify-content:center;}
 #settings{display:none;padding:16px 20px;background:var(--inksoft);border-bottom:1px solid var(--line);font-size:14px;}
 #settings .row{margin-bottom:14px;}
 #settings label{display:block;color:var(--muted);margin-bottom:5px;}
@@ -251,7 +250,7 @@ function openPlayer(block, idx){
   renderDots(); renderState();
 }
 function goHome(){
-  stopAll(); cur = null;
+  stopAll(); releaseWake(); cur = null;
   $("screen-player").style.display = "none";
   $("screen-home").style.display = "block";
   $("btnBack").style.display = "none"; $("btnRestartTop").style.display = "none";
@@ -261,6 +260,25 @@ function goHome(){
   renderHome();
 }
 $("btnBack").onclick = goHome;
+
+// ---------- Wake Lock: tiene sveglio lo schermo durante il drill.
+// Su iPhone-come-Web-App il supporto e' ballerino: se non c'e', si degrada in silenzio.
+let wakeLock = null;
+async function acquireWake(){
+  try {
+    if("wakeLock" in navigator && navigator.wakeLock.request){
+      wakeLock = await navigator.wakeLock.request("screen");
+      wakeLock.addEventListener("release", () => { wakeLock = null; });
+    }
+  } catch(e){ wakeLock = null; }
+}
+function releaseWake(){
+  try { if(wakeLock){ wakeLock.release(); wakeLock = null; } } catch(e){ wakeLock = null; }
+}
+// iOS rilascia il lock quando l'app va in background: lo riprende al ritorno se sta suonando
+document.addEventListener("visibilitychange", () => {
+  if(document.visibilityState === "visible" && status === "playing") acquireWake();
+});
 
 function stopAll(){
   runId++; if(timer) clearTimeout(timer); if(tick) clearInterval(tick);
@@ -272,6 +290,7 @@ function runStep(i){
   const my = runId;
   if(i >= cur.steps.length){
     status = "done";
+    releaseWake();
     const id = keyId(cur.block, cur.idx);
     const p = progress[id] || {count:0, last:0};
     p.count++; p.last = Date.now(); progress[id] = p;
@@ -311,56 +330,12 @@ function runStep(i){
 }
 
 function start(from){
-  stopAll(); status = "playing"; runStep(from);
+  stopAll(); status = "playing"; acquireWake(); runStep(from);
 }
 function pause(){
-  stopAll(); status = "paused";
+  stopAll(); status = "paused"; releaseWake();
   $("pausebox").style.display = "none"; $("pfill").style.width = "100%";
   renderState();
-}
-
-// tappe di navigazione: Chiave, Significato, poi per ogni frase l'italiano e SOLO
-// la prima ripetizione tedesca. Cosi le frecce non ripetono il tedesco 3 volte.
-function navAnchors(){
-  const anchors = [];
-  const seen = {};
-  cur.steps.forEach((s, i) => {
-    if(s.frase == null){
-      if(!seen[s.label]){ anchors.push(i); seen[s.label] = true; }
-    } else if(s.countdown){
-      anchors.push(i);                       // frase italiana
-    } else if(/tedesco 1\//.test(s.label)){
-      anchors.push(i);                        // solo la prima ripetizione tedesca
-    }
-  });
-  return anchors;
-}
-function jumpStep(delta){
-  if(!cur) return;
-  const anchors = navAnchors();
-  let pos = 0;
-  for(let i = 0; i < anchors.length; i++){ if(anchors[i] <= stepIdx) pos = i; }
-  const newPos = Math.min(anchors.length - 1, Math.max(0, pos + delta));
-  const target = anchors[newPos];
-  if(target == null) return;
-  stopAll();
-  status = "paused";                          // navigare mette in pausa: una sola lettura, niente autoplay
-  stepIdx = target;
-  $("pausebox").style.display = "none"; $("pfill").style.width = "100%";
-  renderState();
-  speakOnce(cur.steps[target]);
-}
-function speakOnce(st){
-  if(!window.speechSynthesis) return;
-  speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(st.text);
-  const uri = st.lang === "de" ? cfg.vde : cfg.vit;
-  const v = voices.find(x => x.voiceURI === uri);
-  if(v) u.voice = v;
-  u.lang = st.lang === "de" ? "de-DE" : "it-IT";
-  u.rate = st.lang === "de" ? cfg.rate : 1.0;
-  u.volume = st.lang === "it" ? 0.7 : 1.0;
-  speechSynthesis.speak(u);
 }
 
 // ---------- render
@@ -375,9 +350,7 @@ function renderState(){
   $("doneBox").style.display = status === "done" ? "flex" : "none";
   $("btnRestartTop").style.display = status === "idle" ? "none" : "inline-block";
   if(st && (status === "playing" || status === "paused")){
-    let lbl = st.label;
-    if(status === "paused") lbl = lbl.replace(/ · tedesco \d\/3/, " · tedesco") + " · in pausa";
-    $("stepLabel").textContent = lbl;
+    $("stepLabel").textContent = st.label + (status === "paused" ? " · in pausa" : "");
     $("stepLabel").style.color = st.lang === "de" ? "var(--gold)" : "var(--muted)";
     const t = $("stepText"); t.textContent = st.text;
     t.className = "serif" + (st.text.length > 38 ? " small" : "");
@@ -392,8 +365,8 @@ function renderState(){
   const c = $("controls"); c.innerHTML = "";
   const mk = (txt, cls, fn) => { const b = document.createElement("button"); b.className = "pill " + cls; b.textContent = txt; b.onclick = fn; c.appendChild(b); };
   if(status === "idle"){ mk("Inizia il drill", "gold", () => start(0)); mk("Spiegami", "goldline", openOverlay); }
-  if(status === "playing"){ mk("‹", "nav", () => jumpStep(-1)); mk("Pausa", "goldline", pause); mk("Spiegami", "goldline", openOverlay); mk("›", "nav", () => jumpStep(1)); }
-  if(status === "paused"){ mk("‹", "nav", () => jumpStep(-1)); mk("Riprendi", "gold", () => start(stepIdx)); mk("Spiegami", "goldline", openOverlay); mk("›", "nav", () => jumpStep(1)); }
+  if(status === "playing"){ mk("Pausa", "goldline", pause); mk("Spiegami", "goldline", openOverlay); }
+  if(status === "paused"){ mk("Riprendi", "gold", () => start(stepIdx)); mk("Spiegami", "goldline", openOverlay); }
   if(status === "done"){ mk("Riascolta", "gold", () => start(0)); mk("Spiegami", "goldline", openOverlay); mk("Blocchi", "dim", goHome); }
 }
 $("btnRestartTop").onclick = () => start(0);
