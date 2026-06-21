@@ -63,6 +63,18 @@ footer{border-top:1px solid var(--line);padding:14px 16px calc(20px + env(safe-a
 .idleflag{font-size:13.5px;color:var(--muted);max-width:300px;line-height:1.5;}
 .bigkey{font-size:32px;color:var(--gold);}
 .note{font-size:12px;color:var(--muted);margin-top:6px;}
+.mixcard{width:100%;text-align:left;display:flex;justify-content:space-between;align-items:center;padding:16px;border:1px solid var(--gold);border-radius:14px;margin:14px 0 6px;background:var(--inksoft);}
+.mixcard .mt{font-size:18px;color:var(--gold);} .mixcard .ms{font-size:12.5px;color:var(--muted);margin-top:2px;}
+.mixcard .go{font-size:22px;color:var(--gold);}
+#mixOverlay{display:none;position:fixed;inset:0;background:rgba(10,10,16,.95);z-index:50;flex-direction:column;}
+#mixOverlay .body{flex:1;overflow-y:auto;padding:32px 24px;max-width:480px;margin:0 auto;width:100%;}
+#mixOverlay .de{font-size:22px;color:var(--paper);margin-bottom:4px;}
+#mixOverlay .git{font-size:13px;color:var(--muted);margin-bottom:22px;}
+#mixOverlay h3{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--gold);margin:18px 0 10px;}
+#mixOverlay .alt{padding:11px 0;border-bottom:1px solid var(--line);}
+#mixOverlay .alt .a{font-size:17px;} #mixOverlay .alt .r{font-size:12px;color:var(--muted);margin-top:3px;}
+#mixOverlay p.nota-line{font-size:15.5px;line-height:1.55;color:var(--paper);margin:0 0 11px;}
+#mixOverlay .foot{padding:14px 20px calc(20px + env(safe-area-inset-bottom));display:flex;justify-content:center;}
 </style>
 </head>
 <body>
@@ -119,6 +131,25 @@ footer{border-top:1px solid var(--line);padding:14px 16px calc(20px + env(safe-a
   <footer id="controls"></footer>
 </div>
 
+<div id="screen-mix" style="flex:1;display:none;flex-direction:column;">
+  <div class="center">
+    <div id="mixIdle" style="display:flex;flex-direction:column;align-items:center;gap:10px;">
+      <div class="serif bigkey">Mix</div>
+      <div class="idleflag">Esce una frase a caso dai blocchi 1-5. La pensi in tedesco, poi te la faccio sentire 3 volte. Va avanti da solo; con ‹ › ti muovi a mano, con Pausa ti fermi.</div>
+    </div>
+    <div id="mixPlay" style="display:none;flex-direction:column;align-items:center;gap:14px;width:100%;">
+      <div id="mixLabel" style="font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);min-height:14px;"></div>
+      <div class="serif" id="mixText" style="font-size:27px;line-height:1.35;"></div>
+      <div id="mixSrc" style="font-size:12px;color:var(--muted);"></div>
+      <div id="mixPausebox" style="display:none;width:100%;max-width:340px;">
+        <div class="hint" style="font-size:14px;color:var(--gold);margin-bottom:8px;">Dilla a mente in tedesco…</div>
+        <div style="height:6px;background:var(--line);border-radius:999px;overflow:hidden;"><div id="mixPfill" style="height:100%;background:var(--gold);border-radius:999px;width:100%;"></div></div>
+      </div>
+    </div>
+  </div>
+  <footer id="mixControls"></footer>
+</div>
+
 <div id="overlay">
   <div class="body">
     <div class="eyebrow">Scomposizione</div>
@@ -130,6 +161,18 @@ footer{border-top:1px solid var(--line);padding:14px 16px calc(20px + env(safe-a
     <p><b>Parenti: </b><span id="oPar"></span></p>
   </div>
   <div class="foot"><button class="pill gold" id="btnCloseOverlay">Chiudi</button></div>
+</div>
+
+<div id="mixOverlay">
+  <div class="body">
+    <div class="de serif" id="mixOvDe"></div>
+    <div class="git" id="mixOvSrc"></div>
+    <h3>Altri modi per dirla</h3>
+    <div id="mixOvAlts"></div>
+    <h3>Nota</h3>
+    <div id="mixOvNota"></div>
+  </div>
+  <div class="foot"><button class="pill gold" id="mixOvClose">Chiudi</button></div>
 </div>
 
 <script>
@@ -199,6 +242,11 @@ function keyId(b, i){ return "b" + b + "-k" + i; }
 function daysAgo(ts){ return Math.floor((Date.now() - ts) / 86400000); }
 function renderHome(){
   const el = $("screen-home"); el.innerHTML = "";
+  if(DATA.filter(b => b.block <= 5).length >= 5){
+    const mc = document.createElement("button"); mc.className = "mixcard";
+    mc.innerHTML = '<span><span class="serif mt">Mix · Sezione 1</span><div class="ms">Frasi a caso dai blocchi 1-5</div></span><span class="go">→</span>';
+    mc.onclick = openMix; el.appendChild(mc);
+  }
   DATA.forEach(blk => {
     const t = document.createElement("div"); t.className = "blocktitle";
     t.innerHTML = '<span class="serif n">Block ' + blk.block + '</span><span class="c">' + blk.chiavi.length + ' chiavi</span>';
@@ -222,6 +270,7 @@ function renderHome(){
 // ---------- player / motore
 let cur = null;        // {block, idx, key, steps}
 let status = "idle";   // idle | playing | paused | done
+let curScreen = "home"; // home | drill | mix
 let stepIdx = 0, runId = 0, timer = null, tick = null;
 
 function buildSteps(k){
@@ -238,6 +287,7 @@ function buildSteps(k){
 function openPlayer(block, idx){
   const blk = DATA.find(b => b.block === block);
   cur = {block, idx, key: blk.chiavi[idx], steps: buildSteps(blk.chiavi[idx])};
+  curScreen = "drill";
   status = "idle"; stepIdx = 0;
   $("screen-home").style.display = "none";
   $("screen-player").style.display = "flex";
@@ -252,7 +302,10 @@ function openPlayer(block, idx){
 }
 function goHome(){
   stopAll(); releaseWake(); cur = null;
+  if(typeof mixStop === "function") mixStop();
+  curScreen = "home";
   $("screen-player").style.display = "none";
+  $("screen-mix").style.display = "none";
   $("screen-home").style.display = "block";
   $("btnBack").style.display = "none"; $("btnRestartTop").style.display = "none";
   $("hEyebrow").textContent = "Deutsch Drill";
@@ -408,7 +461,7 @@ function renderState(){
   if(status === "paused"){ mk("‹", "nav", () => jumpStep(-1)); mk("Riprendi", "gold", () => start(stepIdx)); mk("Spiegami", "goldline", openOverlay); mk("›", "nav", () => jumpStep(1)); }
   if(status === "done"){ mk("Riascolta", "gold", () => start(0)); mk("Spiegami", "goldline", openOverlay); mk("Blocchi", "dim", goHome); }
 }
-$("btnRestartTop").onclick = () => start(0);
+$("btnRestartTop").onclick = () => { if(curScreen === "mix") mixRestart(); else start(0); };
 $("skipbtn").onclick = () => { if(status !== "playing") return; const i = stepIdx; stopAll(); status = "playing"; $("pausebox").style.display = "none"; runStep(i + 1); };
 
 // ---------- overlay spiegazione
@@ -431,6 +484,107 @@ $("btnCloseOverlay").onclick = () => {
   $("overlay").style.display = "none";
   if(wasPlaying) start(stepIdx);
 };
+
+// ---------- MIX (sezione: frasi a caso dai blocchi 1-5)
+let mixPool = [], mixOrder = [], mixSteps = [], mixIdx = 0, mixRun = 0, mixTimer = null, mixTick = null, mixStatus = "idle", mixCurP = -1, mixWasPlaying = false;
+function buildMixPool(){
+  mixPool = [];
+  DATA.filter(b => b.block <= 5).forEach(b => {
+    b.chiavi.forEach(k => {
+      (k.frasi || []).forEach(f => {
+        mixPool.push({it: f[0], de: f[1], extra: f[2] || null, src: "Block " + b.block + " · " + k.de});
+      });
+    });
+  });
+}
+function mixShuffle(){ mixOrder = mixPool.map((_, i) => i); for(let i = mixOrder.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1)); [mixOrder[i], mixOrder[j]] = [mixOrder[j], mixOrder[i]]; } }
+function mixBuild(){
+  mixSteps = [];
+  mixOrder.forEach(pi => {
+    const s = mixPool[pi];
+    mixSteps.push({lang: "it", text: s.it, label: "Italiano", countdown: true, p: pi, src: s.src});
+    for(let r = 1; r <= 3; r++) mixSteps.push({lang: "de", text: s.de, label: "Tedesco " + r + "/3", base: r < 3 ? 4000 : 6000, rep: r, p: pi, src: s.src});
+  });
+}
+function mixStop(){ mixRun++; if(mixTimer) clearTimeout(mixTimer); if(mixTick) clearInterval(mixTick); mixTimer = mixTick = null; if(window.speechSynthesis) speechSynthesis.cancel(); }
+function mixUtter(st){
+  const u = new SpeechSynthesisUtterance(st.text);
+  const v = voices.find(x => x.voiceURI === (st.lang === "de" ? cfg.vde : cfg.vit)); if(v) u.voice = v;
+  u.lang = st.lang === "de" ? "de-DE" : "it-IT"; u.rate = st.lang === "de" ? cfg.rate : 1.0; u.volume = st.lang === "it" ? 0.7 : 1.0;
+  return u;
+}
+function mixRunStep(i){
+  const my = mixRun;
+  if(i >= mixSteps.length){ mixShuffle(); mixBuild(); i = 0; }
+  mixIdx = i; mixCurP = mixSteps[i].p; mixRender();
+  const st = mixSteps[i];
+  const adv = () => {
+    if(my !== mixRun) return;
+    const ms = st.countdown ? cfg.pausa * 1000 : Math.round((st.base || 2000) * cfg.ritmo);
+    if(st.countdown){
+      $("mixPausebox").style.display = "block"; const t0 = Date.now();
+      mixTick = setInterval(() => { if(my !== mixRun) return; $("mixPfill").style.width = Math.max(0, 100 - (Date.now() - t0) / ms * 100) + "%"; }, 100);
+    }
+    mixTimer = setTimeout(() => {
+      if(my !== mixRun) return; if(mixTick) clearInterval(mixTick);
+      $("mixPausebox").style.display = "none"; $("mixPfill").style.width = "100%";
+      mixRunStep(i + 1);
+    }, ms);
+  };
+  if(window.speechSynthesis){
+    speechSynthesis.cancel(); const u = mixUtter(st); u.onend = adv; u.onerror = adv;
+    setTimeout(() => { if(my === mixRun) speechSynthesis.speak(u); }, 150);
+  } else { setTimeout(adv, 500); }
+}
+function mixStart(from){ mixStop(); mixStatus = "playing"; acquireWake(); mixRunStep(from); }
+function mixPause(){ mixStop(); mixStatus = "paused"; releaseWake(); $("mixPausebox").style.display = "none"; $("mixPfill").style.width = "100%"; mixRender(); }
+function mixRestart(){ mixShuffle(); mixBuild(); mixStart(0); }
+function mixAnchors(){ const a = []; mixSteps.forEach((s, i) => { if(s.countdown) a.push(i); else if(s.rep === 1) a.push(i); }); return a; }
+function mixJump(delta){
+  if(!mixSteps.length) return;
+  const a = mixAnchors(); let pos = 0; for(let i = 0; i < a.length; i++){ if(a[i] <= mixIdx) pos = i; }
+  let ni = pos + delta; if(ni < 0) ni = 0; if(ni >= a.length) ni = a.length - 1;
+  const target = a[ni];
+  mixStop(); releaseWake(); mixStatus = "paused"; mixIdx = target; mixCurP = mixSteps[target].p;
+  $("mixPausebox").style.display = "none"; $("mixPfill").style.width = "100%"; mixRender();
+  if(window.speechSynthesis){ speechSynthesis.cancel(); speechSynthesis.speak(mixUtter(mixSteps[target])); }
+}
+function mixRender(){
+  $("mixIdle").style.display = mixStatus === "idle" ? "flex" : "none";
+  $("mixPlay").style.display = (mixStatus === "playing" || mixStatus === "paused") ? "flex" : "none";
+  if(curScreen === "mix") $("btnRestartTop").style.display = mixStatus === "idle" ? "none" : "inline-block";
+  const st = mixSteps.length ? mixSteps[Math.min(mixIdx, mixSteps.length - 1)] : null;
+  if(st && (mixStatus === "playing" || mixStatus === "paused")){
+    let lbl = st.label; if(mixStatus === "paused") lbl += " · in pausa";
+    $("mixLabel").textContent = lbl; $("mixLabel").style.color = st.lang === "de" ? "var(--gold)" : "var(--muted)";
+    const t = $("mixText"); t.textContent = st.text; t.className = "serif" + (st.text.length > 38 ? " small" : ""); t.style.color = st.lang === "de" ? "var(--paper)" : "var(--itcol)";
+    $("mixSrc").textContent = st.lang === "de" ? st.src : "";
+  }
+  const c = $("mixControls"); c.innerHTML = "";
+  const mk = (txt, cls, fn) => { const b = document.createElement("button"); b.className = "pill " + cls; b.textContent = txt; b.onclick = fn; c.appendChild(b); };
+  const hasExtra = mixCurP >= 0 && mixPool[mixCurP] && mixPool[mixCurP].extra;
+  if(mixStatus === "idle"){ mk("Inizia", "gold", () => { mixShuffle(); mixBuild(); mixStart(0); }); }
+  else if(mixStatus === "playing"){ mk("‹", "nav", () => mixJump(-1)); mk("Pausa", "goldline", mixPause); if(hasExtra) mk("Spiegami", "goldline", mixOpenOverlay); mk("›", "nav", () => mixJump(1)); }
+  else { mk("‹", "nav", () => mixJump(-1)); mk("Riprendi", "gold", () => mixStart(mixIdx)); if(hasExtra) mk("Spiegami", "goldline", mixOpenOverlay); mk("›", "nav", () => mixJump(1)); }
+}
+function mixOpenOverlay(){
+  if(mixCurP < 0) return; const s = mixPool[mixCurP]; if(!s.extra) return;
+  mixWasPlaying = mixStatus === "playing"; if(mixWasPlaying) mixPause();
+  $("mixOvDe").textContent = s.de; $("mixOvSrc").textContent = s.src;
+  $("mixOvAlts").innerHTML = (s.extra.alt || []).map(a => '<div class="alt"><div class="a">' + a[0] + '</div><div class="r">' + a[1] + '</div></div>').join("");
+  $("mixOvNota").innerHTML = (s.extra.nota || "").split(/(?<=\.) /).map(l => '<p class="nota-line">' + l + '</p>').join("");
+  $("mixOvClose").textContent = mixWasPlaying ? "Chiudi e riprendi" : "Chiudi";
+  $("mixOverlay").style.display = "flex";
+}
+function openMix(){
+  buildMixPool();
+  curScreen = "mix"; mixStatus = "idle"; mixIdx = 0; mixCurP = -1;
+  $("screen-home").style.display = "none"; $("screen-player").style.display = "none"; $("screen-mix").style.display = "flex";
+  $("btnBack").style.display = "inline-block"; $("btnRestartTop").style.display = "none";
+  $("hEyebrow").textContent = "Mix · Sezione 1"; $("hTitle").textContent = "Frasi a caso"; $("hSub").textContent = "Blocchi 1-5 · " + mixPool.length + " frasi";
+  mixRender();
+}
+$("mixOvClose").onclick = () => { $("mixOverlay").style.display = "none"; if(mixWasPlaying) mixStart(mixIdx); };
 
 // ---------- avvio
 if(!window.speechSynthesis){
