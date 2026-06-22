@@ -135,7 +135,7 @@ footer{border-top:1px solid var(--line);padding:14px 16px calc(20px + env(safe-a
   <div class="center">
     <div id="mixIdle" style="display:flex;flex-direction:column;align-items:center;gap:10px;">
       <div class="serif bigkey">Mix</div>
-      <div class="idleflag">Esce una frase a caso dai blocchi 1-5. La pensi in tedesco, poi te la faccio sentire 3 volte. Va avanti da solo; con ‹ › ti muovi a mano, con Pausa ti fermi.</div>
+      <div class="idleflag">Esce una frase a caso dai blocchi della sezione. La pensi in tedesco, poi te la faccio sentire 3 volte. Va avanti da solo; con ‹ › ti muovi a mano, con Pausa ti fermi.</div>
     </div>
     <div id="mixPlay" style="display:none;flex-direction:column;align-items:center;gap:14px;width:100%;">
       <div id="mixLabel" style="font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);min-height:14px;"></div>
@@ -242,10 +242,16 @@ function keyId(b, i){ return "b" + b + "-k" + i; }
 function daysAgo(ts){ return Math.floor((Date.now() - ts) / 86400000); }
 function renderHome(){
   const el = $("screen-home"); el.innerHTML = "";
-  if(DATA.filter(b => b.block <= 5).length >= 5){
+  const maxB = Math.max(...DATA.map(b => b.block));
+  for(let s = 0; s * 4 < maxB; s++){
+    const lo = s * 4 + 1, hi = Math.min(s * 4 + 4, maxB);
+    const blocksIn = DATA.filter(b => b.block >= lo && b.block <= hi).map(b => b.block);
+    if(blocksIn.length < 2) continue;
+    const label = "Mix · Sezione " + (s + 1), sub = "Blocchi " + lo + "-" + hi;
     const mc = document.createElement("button"); mc.className = "mixcard";
-    mc.innerHTML = '<span><span class="serif mt">Mix · Sezione 1</span><div class="ms">Frasi a caso dai blocchi 1-5</div></span><span class="go">→</span>';
-    mc.onclick = openMix; el.appendChild(mc);
+    mc.innerHTML = '<span><span class="serif mt">' + label + '</span><div class="ms">Frasi a caso dai blocchi ' + lo + '-' + hi + '</div></span><span class="go">→</span>';
+    mc.onclick = () => openMix(blocksIn, label, sub);
+    el.appendChild(mc);
   }
   DATA.forEach(blk => {
     const t = document.createElement("div"); t.className = "blocktitle";
@@ -486,10 +492,10 @@ $("btnCloseOverlay").onclick = () => {
 };
 
 // ---------- MIX (sezione: frasi a caso dai blocchi 1-5)
-let mixPool = [], mixOrder = [], mixSteps = [], mixIdx = 0, mixRun = 0, mixTimer = null, mixTick = null, mixStatus = "idle", mixCurP = -1, mixWasPlaying = false;
+let mixPool = [], mixOrder = [], mixSteps = [], mixIdx = 0, mixRun = 0, mixTimer = null, mixTick = null, mixStatus = "idle", mixCurP = -1, mixWasPlaying = false, mixSectionBlocks = [];
 function buildMixPool(){
   mixPool = [];
-  DATA.filter(b => b.block <= 5).forEach(b => {
+  DATA.filter(b => mixSectionBlocks.includes(b.block)).forEach(b => {
     b.chiavi.forEach(k => {
       (k.frasi || []).forEach(f => {
         mixPool.push({it: f[0], de: f[1], extra: f[2] || null, src: "Block " + b.block + " · " + k.de});
@@ -576,12 +582,13 @@ function mixOpenOverlay(){
   $("mixOvClose").textContent = mixWasPlaying ? "Chiudi e riprendi" : "Chiudi";
   $("mixOverlay").style.display = "flex";
 }
-function openMix(){
+function openMix(blocks, eyebrow, sub){
+  mixSectionBlocks = blocks;
   buildMixPool();
   curScreen = "mix"; mixStatus = "idle"; mixIdx = 0; mixCurP = -1;
   $("screen-home").style.display = "none"; $("screen-player").style.display = "none"; $("screen-mix").style.display = "flex";
   $("btnBack").style.display = "inline-block"; $("btnRestartTop").style.display = "none";
-  $("hEyebrow").textContent = "Mix · Sezione 1"; $("hTitle").textContent = "Frasi a caso"; $("hSub").textContent = "Blocchi 1-5 · " + mixPool.length + " frasi";
+  $("hEyebrow").textContent = eyebrow; $("hTitle").textContent = "Frasi a caso"; $("hSub").textContent = sub + " · " + mixPool.length + " frasi";
   mixRender();
 }
 $("mixOvClose").onclick = () => { $("mixOverlay").style.display = "none"; if(mixWasPlaying) mixStart(mixIdx); };
